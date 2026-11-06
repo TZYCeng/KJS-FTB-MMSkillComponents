@@ -61,7 +61,14 @@ function makeContext() {
 
 async function boot({ home } = {}) {
   const previous = process.env.DSH_HOME;
-  if (home) process.env.DSH_HOME = home;
+  const previousMmscHome = process.env.MMSC_HOME;
+  if (home) {
+    process.env.DSH_HOME = home;
+    // The supervised workbench inherits this environment. Without MMSC_HOME the
+    // child CLI would remember the throwaway test pack in the real ~/.mmsc
+    // library, so every test run would litter the user's pack list.
+    process.env.MMSC_HOME = path.join(home, 'mmsc-home');
+  }
   const ctx = makeContext();
   const module = await import(`${new URL(`file:///${pluginDir.replace(/\\/g, '/')}/index.js`).href}?t=${Date.now()}-${Math.random()}`);
   module.apply(ctx);
@@ -76,7 +83,15 @@ async function boot({ home } = {}) {
     const response = await handler.fetch(request);
     return { status: response.status, body: await response.json() };
   };
-  return { ctx, call, restore: () => (process.env.DSH_HOME = previous) };
+  return {
+    ctx,
+    call,
+    restore: () => {
+      process.env.DSH_HOME = previous;
+      if (previousMmscHome === undefined) delete process.env.MMSC_HOME;
+      else process.env.MMSC_HOME = previousMmscHome;
+    },
+  };
 }
 
 const tempHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'mmsc-home-'));
@@ -162,6 +177,15 @@ test('start reports a running workbench with a URL and stop releases it', async 
     const version = await fetched.json();
     assert.equal(version.name, 'mmsc-workbench');
     assert.equal(version.apiVersion, 'v1');
+
+    // The library must live inside the test home, never in the real ~/.mmsc.
+    const isolated = path.join(home, 'mmsc-home', 'library.json');
+    assert.ok(fs.existsSync(isolated), 'workbench wrote its pack library outside the test home');
+    const library = JSON.parse(fs.readFileSync(isolated, 'utf8'));
+    assert.ok(
+      library.packs.some((entry) => path.resolve(entry.path) === path.resolve(pack)),
+      'the opened pack is remembered in the isolated library',
+    );
 
     const stopped = await call('stop', {});
     assert.equal(stopped.body.service.status, 'stopped');
