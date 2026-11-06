@@ -4,14 +4,20 @@
  *
  * Everything it reads is inside the pack directory the user picked; the only
  * writes are:
- *   <pack>/.kjsftb/edits.json                     the edit log
+ *   <pack>/.kjsftb/edits.json                       the edit log
+ *   <pack>/.kjsftb/items-cache.json                 item index cache
+ *   <pack>/.kjsftb/recipes-cache.json               recipe index cache
+ *   <pack>/.kjsftb/background.<ext>                 quest-page background image
+ *   <pack>/.kjsftb/settings.json                    per-pack UI settings
  *   <pack>/kubejs/server_scripts/zz_kjsftb_edits.js  the generated script
- *   <pack>/.kjsftb/background.<ext>               the UI background image
- *   <pack>/.kjsftb/config.json                    UI settings
+ *
+ * The library of known packs lives in $MMSC_HOME/library.json (default
+ * ~/.mmsc/library.json) so switching packs never touches the packs themselves.
  */
 import { createServer } from 'node:http';
-import { promises as fs, existsSync, createReadStream } from 'node:fs';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { promises as fs, existsSync, createReadStream, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { detectPack, formatDetection } from '../scripts/detect.mjs';
 import { buildItemIndex, searchItems } from '../scripts/items.mjs';
@@ -36,6 +42,19 @@ const CORE_RECIPE_TYPES = [
   'minecraft:smithing_trim',
 ];
 
+/**
+ * Stations group recipe types into the blocks a pack author thinks in.
+ * `match` runs against the full type id (namespace included) and the first hit
+ * wins, so "special" must stay last.
+ */
+const STATIONS = [
+  { id: 'crafting', label: '工作台', icon: 'crafting_table', match: (t) => /crafting/.test(t) },
+  { id: 'furnace', label: '熔炉系', icon: 'furnace', match: (t) => /(smelting|blasting|smoking|campfire_cooking|fire_cooking|kiln|oven|cooking)/.test(t) },
+  { id: 'stonecutter', label: '切石机', icon: 'stonecutter', match: (t) => /stonecutting|stonecutter|cutting|sawmill|sawing/.test(t) },
+  { id: 'smithing', label: '锻造台', icon: 'smithing_table', match: (t) => /smithing/.test(t) },
+  { id: 'special', label: '其他/模组机器', icon: 'custom', match: () => true },
+];
+
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 // A rebuilt frontend can be dropped into ui/dist without touching the server;
 // the bundled vanilla client in ui/public stays the fallback.
@@ -44,6 +63,10 @@ const PUBLIC_DIR = existsSync(join(HERE, '..', 'ui', 'dist'))
   : join(HERE, '..', 'ui', 'public');
 const ICON_CACHE_LIMIT = 400;
 const EDIT_SCRIPT = join('kubejs', 'server_scripts', 'zz_kjsftb_edits.js');
+const LIBRARY_DIR = process.env.MMSC_HOME ?? join(homedir(), '.mmsc');
+const LIBRARY_FILE = join(LIBRARY_DIR, 'library.json');
+/** How many packs keep their built indexes in memory (switching stays instant). */
+const PACK_CACHE_LIMIT = 4;
 
 const state = {
   root: null,
@@ -53,10 +76,23 @@ const state = {
   quests: null,
   iconCache: new Map(),
   log: [],
+  library: { packs: [], active: null },
 };
 
+/** path -> { detection, items, recipes, quests } so switching back is free. */
+const packCache = new Map();
+
 export async function startWorkbench({ root = null, port = 0, host = '127.0.0.1' } = {}) {
-  if (root) await openPack(root);
+  await loadLibrary();
+  if (root) {
+    await openPack(root);
+  } else if (state.library.active && existsSync(state.library.active)) {
+    try {
+      await openPack(state.library.active, { remember: false });
+    } catch {
+      /* stale library entry: keep the server usable and let the UI pick */
+    }
+  }
   const server = createServer((req, res) => {
     handle(req, res).catch((err) => {
       sendJson(res, 500, { error: String(err?.message ?? err) });
@@ -67,35 +103,151 @@ export async function startWorkbench({ root = null, port = 0, host = '127.0.0.1'
   return { server, url: `http://${host}:${address.port}`, port: address.port, state };
 }
 
-async function openPack(dir) {
+// ---------------------------------------------------------------------------
+// pack library
+// ---------------------------------------------------------------------------
+
+async function loadLibrary() {
+  try {
+    const parsed = JSON.parse(await fs.readFile(LIBRARY_FILE, 'utf8'));
+    state.library = {
+      packs: Array.isArray(parsed.packs) ? parsed.packs.filter((p) => p && typeof p.path === 'string') : [],
+      active: typeof parsed.active === 'string' ? parsed.active : null,
+    };
+  } catch {
+    state.library = { packs: [], active: null };
+  }
+  return state.library;
+}
+
+async function saveLibrary() {
+  await fs.mkdir(LIBRARY_DIR, { recursive: true });
+  const tmp = `${LIBRARY_FILE}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(state.library, null, 2), 'utf8');
+  await fs.rename(tmp, LIBRARY_FILE);
+}
+
+function packEntry(path) {
+  return state.library.packs.find((p) => p.path === path) ?? null;
+}
+
+async function rememberPack(path, { name } = {}) {
+  const entry = packEntry(path);
+  if (entry) {
+    entry.lastOpenedAt = new Date().toISOString();
+    if (name) entry.name = name;
+  } else {
+    state.library.packs.push({
+      path,
+      name: name ?? basename(path) ?? path,
+      addedAt: new Date().toISOString(),
+      lastOpenedAt: new Date().toISOString(),
+    });
+  }
+  state.library.active = path;
+  await saveLibrary();
+}
+
+async function forgetPack(path) {
+  state.library.packs = state.library.packs.filter((p) => p.path !== path);
+  packCache.delete(path);
+  if (state.library.active === path) {
+    state.library.active = state.library.packs.at(-1)?.path ?? null;
+    await saveLibrary();
+    if (state.library.active) return openPack(state.library.active, { remember: false });
+    state.root = null;
+    state.detection = null;
+    state.items = null;
+    state.recipes = null;
+    state.quests = null;
+    state.iconCache.clear();
+    return null;
+  }
+  await saveLibrary();
+  return state.detection;
+}
+
+async function packList() {
+  const packs = [];
+  for (const entry of state.library.packs) {
+    let exists = false;
+    try {
+      exists = statSync(entry.path).isDirectory();
+    } catch {
+      exists = false;
+    }
+    packs.push({ ...entry, exists, active: entry.path === state.root });
+  }
+  packs.sort((a, b) => String(b.lastOpenedAt ?? '').localeCompare(String(a.lastOpenedAt ?? '')));
+  return packs;
+}
+
+// ---------------------------------------------------------------------------
+// opening a pack
+// ---------------------------------------------------------------------------
+
+async function openPack(dir, { remember = true } = {}) {
   const target = resolve(dir);
   if (!existsSync(target)) throw new Error(`no such directory: ${target}`);
-  const detection = await detectPack(target);
+  const cached = packCache.get(target);
+  const detection = cached?.detection ?? (await detectPack(target));
   state.root = target;
   state.detection = detection;
-  state.items = null;
-  state.recipes = null;
-  state.quests = null;
+  state.items = cached?.items ?? null;
+  state.recipes = cached?.recipes ?? null;
+  state.quests = cached?.quests ?? null;
   state.iconCache.clear();
+  if (remember) await rememberPack(target);
+  else state.library.active = target;
   return detection;
 }
 
-async function ensureItems() {
-  if (!state.items) state.items = await buildItemIndex(state.root);
+/** Keep at most PACK_CACHE_LIMIT packs warm; oldest access goes first. */
+function touchPackCache() {
+  if (!state.root) return null;
+  const entry = packCache.get(state.root);
+  if (entry) {
+    packCache.delete(state.root);
+    packCache.set(state.root, entry);
+  }
+  return entry;
+}
+
+function storePackCache(patch) {
+  if (!state.root) return;
+  const entry = packCache.get(state.root) ?? { detection: state.detection };
+  Object.assign(entry, patch);
+  packCache.delete(state.root);
+  packCache.set(state.root, entry);
+  while (packCache.size > PACK_CACHE_LIMIT) packCache.delete(packCache.keys().next().value);
+}
+
+async function ensureItems({ force = false } = {}) {
+  if (force) state.items = null;
+  if (!state.items) {
+    state.items = await buildItemIndex(state.root, { force });
+    storePackCache({ items: state.items });
+  }
   return state.items;
 }
 
-async function ensureRecipes() {
-  if (!state.recipes) state.recipes = await buildRecipeIndex(state.root);
+async function ensureRecipes({ force = false } = {}) {
+  if (force) state.recipes = null;
+  if (!state.recipes) {
+    state.recipes = await buildRecipeIndex(state.root, { force });
+    storePackCache({ recipes: state.recipes });
+  }
   return state.recipes;
 }
 
-async function ensureQuests() {
+async function ensureQuests({ force = false } = {}) {
+  if (force) state.quests = null;
   if (state.quests) return state.quests;
   const dir = await questDirOf(state.root);
   if (!dir) return null;
   const model = await loadQuestDir(dir, { ftbq: state.detection?.ftbQuests?.version });
   state.quests = model;
+  storePackCache({ quests: model });
   return model;
 }
 
@@ -105,6 +257,10 @@ async function questDirOf(root) {
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// routing
+// ---------------------------------------------------------------------------
 
 async function handle(req, res) {
   const url = new URL(req.url, 'http://127.0.0.1');
@@ -132,127 +288,274 @@ async function handle(req, res) {
   if (req.method === 'POST') {
     const body = await readBody(req);
     if (path === '/api/open') {
+      // legacy alias: select (and remember) a pack
       const detection = await openPack(body.dir);
       return sendJson(res, 200, { ok: true, detection, summary: formatDetection(detection) });
     }
+    if (path === '/api/packs') return apiPacksPost(res, body);
+    if (path === '/api/refresh') return apiRefresh(res, body);
     if (path === '/api/edit') return apiEdit(res, body);
     if (path === '/api/settings') return apiSettings(res, body);
     if (path === '/api/background') return apiBackgroundUpload(res, body);
     return sendJson(res, 404, { error: 'unknown endpoint' });
   }
 
-  if (path === '/api/state') {
-    try {
-      if (!state.root) return sendJson(res, 200, { open: false, cwd: process.cwd() });
-      const items = await ensureItems();
-      const recipes = await ensureRecipes();
-      const quests = await ensureQuests();
-      return sendJson(res, 200, {
-        open: true,
-        root: state.root,
-        detection: state.detection,
-        summary: formatDetection(state.detection),
-        items: items.stats,
-        mods: items.mods,
-        recipes: recipes.stats,
-        recipeTypes: recipes.byType,
-        ops: recipes.ops.length,
-        quests: quests ? questSummary(quests) : null,
-        settings: await readSettings(state.root),
-      });
-    } catch (err) {
-      return sendJson(res, 500, { error: String(err?.message ?? err) });
-    }
-  }
-
-  if (path === '/api/items') {
-    if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
-    const items = await ensureItems();
-    const result = searchItems(items, {
-      q: url.searchParams.get('q') ?? '',
-      mod: url.searchParams.get('mod') ?? '',
-      limit: Number(url.searchParams.get('limit') ?? 120),
-      offset: Number(url.searchParams.get('offset') ?? 0),
-      withIcon: url.searchParams.get('withIcon') === '1',
-    });
-    return sendJson(res, 200, result);
-  }
-
+  if (path === '/api/packs') return sendJson(res, 200, await apiPacksGet());
+  if (path === '/api/state') return apiState(res);
+  if (path === '/api/items') return apiItems(res, url);
   if (path === '/api/icon') return apiIcon(res, url);
-
-  if (path === '/api/icon-by-id') {
-    if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
-    const id = url.searchParams.get('id') ?? '';
-    const items = await ensureItems();
-    const rec = items.byId?.get(id);
-    if (!rec?.icon) return sendJson(res, 404, { error: 'no icon', id });
-    return apiIcon(res, new URL(`http://x/api/icon?jar=${encodeURIComponent(rec.icon.jar)}&entry=${encodeURIComponent(rec.icon.entry)}`));
-  }
-
-  if (path === '/api/recipes') {
-    if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
-    const index = await ensureRecipes();
-    const output = url.searchParams.get('output');
-    const input = url.searchParams.get('input');
-    const q = (url.searchParams.get('q') ?? '').toLowerCase();
-    const type = url.searchParams.get('type') ?? '';
-    let list;
-    if (output) list = recipesForOutput(index, output);
-    else if (input) list = recipesForInput(index, input);
-    else list = index.recipes;
-    if (type) list = list.filter((r) => r.type === type);
-    if (q) list = list.filter((r) => r.id.toLowerCase().includes(q) || r.type.toLowerCase().includes(q));
-    if (!output && !input) {
-      // show the recipes a pack author is most likely to edit first: vanilla crafting
-      // families before modded machine recipes, then anything with a real output
-      const rank = (t) => {
-        const i = CORE_RECIPE_TYPES.indexOf(t);
-        return i === -1 ? 99 : i;
-      };
-      list = [...list].sort(
-        (a, b) => rank(a.type) - rank(b.type) || (b.outputs?.length ?? 0) - (a.outputs?.length ?? 0) || a.id.localeCompare(b.id),
-      );
-    }
-    const limit = Math.min(Number(url.searchParams.get('limit') ?? 40) || 40, 200);
-    const offset = Math.max(Number(url.searchParams.get('offset') ?? 0) || 0, 0);
-    return sendJson(res, 200, {
-      total: list.length,
-      offset,
-      limit,
-      recipes: list.slice(offset, offset + limit).map(thinRecipe),
-    });
-  }
-
-  if (path.startsWith('/api/recipe/')) {
-    const index = await ensureRecipes();
-    const id = decodeURIComponent(path.slice('/api/recipe/'.length));
-    const recipe = recipeById(index, id);
-    return recipe ? sendJson(res, 200, recipe) : sendJson(res, 404, { error: 'no such recipe' });
-  }
-
-  if (path === '/api/quests') {
-    if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
-    const model = await ensureQuests();
-    if (!model) return sendJson(res, 200, { exists: false, chapters: [], quests: [] });
-    return sendJson(res, 200, questGraph(model));
-  }
-
-  if (path === '/api/lint') {
-    if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
-    const report = await lintPack(state.root, state.detection);
-    return sendJson(res, 200, { report, text: formatLintReport(report), ok: report.errors === 0 });
-  }
-
-  if (path === '/api/edits') {
-    const edits = await readEdits(state.root);
-    return sendJson(res, 200, edits);
-  }
-
+  if (path === '/api/icon-by-id') return apiIconById(res, url);
+  if (path === '/api/recipes') return apiRecipes(res, url);
+  if (path.startsWith('/api/recipe/')) return apiRecipeOne(res, path);
+  if (path === '/api/quests') return apiQuests(res);
+  if (path === '/api/lint') return apiLint(res);
+  if (path === '/api/edits') return sendJson(res, 200, await readEdits(state.root));
   if (path === '/api/background') return apiBackgroundGet(res);
-
   if (path === '/api/settings') return sendJson(res, 200, await readSettings(state.root));
 
   return serveStatic(res, path);
+}
+
+async function apiState(res) {
+  try {
+    const packs = await packList();
+    if (!state.root) return sendJson(res, 200, { open: false, cwd: process.cwd(), packs, stations: STATIONS.map(({ id, label }) => ({ id, label, count: 0 })) });
+    const items = await ensureItems();
+    const recipes = await ensureRecipes();
+    const quests = await ensureQuests();
+    return sendJson(res, 200, {
+      open: true,
+      root: state.root,
+      name: basename(state.root),
+      detection: state.detection,
+      summary: formatDetection(state.detection),
+      items: items.stats,
+      mods: items.mods,
+      recipes: recipes.stats,
+      recipeTypes: recipes.byType,
+      stations: stationCounts(recipes),
+      ops: recipes.ops.length,
+      quests: quests ? questSummary(quests) : null,
+      settings: await readSettings(state.root),
+      packs,
+    });
+  } catch (err) {
+    return sendJson(res, 500, { error: String(err?.message ?? err) });
+  }
+}
+
+function stationCounts(index) {
+  const counts = new Map(STATIONS.map((s) => [s.id, 0]));
+  for (const recipe of index.recipes ?? []) {
+    const station = stationOf(recipe.type);
+    counts.set(station, (counts.get(station) ?? 0) + 1);
+  }
+  return STATIONS.map(({ id, label }) => ({ id, label, count: counts.get(id) ?? 0 }));
+}
+
+function stationOf(type) {
+  const t = String(type ?? '').toLowerCase();
+  return (STATIONS.find((s) => s.match(t)) ?? STATIONS.at(-1)).id;
+}
+
+// ---------------------------------------------------------------------------
+// packs
+// ---------------------------------------------------------------------------
+
+async function apiPacksGet() {
+  return { packs: await packList(), active: state.root };
+}
+
+async function apiPacksPost(res, body) {
+  const op = body.op ?? 'add';
+  if (op === 'add') {
+    const dir = String(body.dir ?? '').trim();
+    if (!dir) return sendJson(res, 400, { error: 'dir required' });
+    const target = resolve(dir);
+    if (!existsSync(target)) return sendJson(res, 400, { error: `no such directory: ${target}` });
+    const detection = await openPack(target);
+    return sendJson(res, 200, { ok: true, opened: target, detection, summary: formatDetection(detection), packs: await packList() });
+  }
+  if (op === 'select') {
+    const dir = String(body.dir ?? '').trim();
+    if (!dir) return sendJson(res, 400, { error: 'dir required' });
+    if (!packEntry(resolve(dir))) await rememberPack(resolve(dir), { name: body.name });
+    const detection = await openPack(dir);
+    return sendJson(res, 200, { ok: true, opened: state.root, detection, summary: formatDetection(detection), packs: await packList() });
+  }
+  if (op === 'remove') {
+    const dir = String(body.dir ?? '').trim();
+    if (!dir) return sendJson(res, 400, { error: 'dir required' });
+    await forgetPack(resolve(dir));
+    return sendJson(res, 200, { ok: true, active: state.root, packs: await packList() });
+  }
+  if (op === 'rename') {
+    const dir = String(body.dir ?? '').trim();
+    const entry = packEntry(resolve(dir));
+    if (!entry) return sendJson(res, 404, { error: 'not in the library' });
+    entry.name = String(body.name ?? '').trim() || basename(entry.path);
+    await saveLibrary();
+    return sendJson(res, 200, { ok: true, packs: await packList() });
+  }
+  return sendJson(res, 400, { error: 'unknown op' });
+}
+
+async function apiRefresh(res, body) {
+  if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
+  const scope = body.scope ?? 'all';
+  const started = Date.now();
+  if (scope === 'all' || scope === 'items') await ensureItems({ force: true });
+  if (scope === 'all' || scope === 'recipes') await ensureRecipes({ force: true });
+  if (scope === 'all' || scope === 'quests') await ensureQuests({ force: true });
+  if (scope === 'all') state.detection = await detectPack(state.root);
+  return sendJson(res, 200, { ok: true, scope, ms: Date.now() - started, state: await stateSnapshot() });
+}
+
+async function stateSnapshot() {
+  const items = await ensureItems();
+  const recipes = await ensureRecipes();
+  const quests = await ensureQuests();
+  return {
+    open: true,
+    root: state.root,
+    name: basename(state.root),
+    detection: state.detection,
+    summary: formatDetection(state.detection),
+    items: items.stats,
+    mods: items.mods,
+    recipes: recipes.stats,
+    recipeTypes: recipes.byType,
+    stations: stationCounts(recipes),
+    ops: recipes.ops.length,
+    quests: quests ? questSummary(quests) : null,
+    settings: await readSettings(state.root),
+    packs: await packList(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// items
+// ---------------------------------------------------------------------------
+
+async function apiItems(res, url) {
+  if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
+  const items = await ensureItems();
+  const result = searchItems(items, {
+    q: url.searchParams.get('q') ?? '',
+    mod: url.searchParams.get('mod') ?? '',
+    limit: Number(url.searchParams.get('limit') ?? 120),
+    offset: Number(url.searchParams.get('offset') ?? 0),
+    withIcon: url.searchParams.get('withIcon') === '1',
+  });
+  return sendJson(res, 200, result);
+}
+
+async function apiIconById(res, url) {
+  if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
+  const id = url.searchParams.get('id') ?? '';
+  const items = await ensureItems();
+  const rec = items.byId?.get(id);
+  if (!rec?.icon) return sendJson(res, 404, { error: 'no icon', id });
+  return apiIcon(res, new URL(`http://x/api/icon?jar=${encodeURIComponent(rec.icon.jar)}&entry=${encodeURIComponent(rec.icon.entry)}`));
+}
+
+async function apiIcon(res, url) {
+  const jar = url.searchParams.get('jar') ?? '';
+  const entry = url.searchParams.get('entry') ?? '';
+  if (!state.root || !jar || !entry) return sendJson(res, 400, { error: 'jar and entry required' });
+  const jarPath = resolve(state.root, jar);
+  if (!jarPath.startsWith(resolve(state.root) + sep)) return sendJson(res, 403, { error: 'outside the pack' });
+  const cacheKey = `${jar}::${entry}`;
+  if (state.iconCache.has(cacheKey)) {
+    const buf = state.iconCache.get(cacheKey);
+    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=3600' });
+    return res.end(buf);
+  }
+  try {
+    if (!entry.startsWith('assets/') || entry.includes('..')) return sendJson(res, 400, { error: 'bad entry' });
+    const archive = await openJar(jarPath);
+    if (!archive.has(entry)) return sendJson(res, 404, { error: 'no such entry' });
+    const buf = await archive.read(entry, { maxSize: 4 * 1024 * 1024 });
+    if (state.iconCache.size >= ICON_CACHE_LIMIT) state.iconCache.clear();
+    state.iconCache.set(cacheKey, buf);
+    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=3600' });
+    return res.end(buf);
+  } catch (err) {
+    return sendJson(res, 500, { error: String(err?.message ?? err) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// recipes
+// ---------------------------------------------------------------------------
+
+async function apiRecipes(res, url) {
+  if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
+  const index = await ensureRecipes();
+  const output = url.searchParams.get('output');
+  const input = url.searchParams.get('input');
+  const q = (url.searchParams.get('q') ?? '').toLowerCase();
+  const type = url.searchParams.get('type') ?? '';
+  const station = url.searchParams.get('station') ?? '';
+  let list;
+  if (output) list = recipesForOutput(index, output);
+  else if (input) list = recipesForInput(index, input);
+  else list = index.recipes;
+  if (type) list = list.filter((r) => r.type === type);
+  if (station) list = list.filter((r) => stationOf(r.type) === station);
+  if (q) list = list.filter((r) => r.id.toLowerCase().includes(q) || r.type.toLowerCase().includes(q));
+  if (!output && !input) {
+    // show the recipes a pack author is most likely to edit first: vanilla crafting
+    // families before modded machine recipes, then anything with a real output
+    const rank = (t) => {
+      const i = CORE_RECIPE_TYPES.indexOf(t);
+      return i === -1 ? 99 : i;
+    };
+    list = [...list].sort(
+      (a, b) => rank(a.type) - rank(b.type) || (b.outputs?.length ?? 0) - (a.outputs?.length ?? 0) || a.id.localeCompare(b.id),
+    );
+  }
+  const limit = Math.min(Number(url.searchParams.get('limit') ?? 40) || 40, 200);
+  const offset = Math.max(Number(url.searchParams.get('offset') ?? 0) || 0, 0);
+  return sendJson(res, 200, {
+    total: list.length,
+    offset,
+    limit,
+    station: station || null,
+    recipes: list.slice(offset, offset + limit).map(thinRecipe),
+  });
+}
+
+async function apiRecipeOne(res, path) {
+  if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
+  const index = await ensureRecipes();
+  const id = decodeURIComponent(path.slice('/api/recipe/'.length));
+  const recipe = recipeById(index, id);
+  return recipe ? sendJson(res, 200, recipe) : sendJson(res, 404, { error: 'no such recipe' });
+}
+
+function thinRecipe(recipe) {
+  return {
+    id: recipe.id,
+    type: recipe.type,
+    station: stationOf(recipe.type),
+    source: recipe.source,
+    file: recipe.file,
+    outputs: recipe.outputs,
+    inputs: recipe.inputs,
+    grid: recipe.grid ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// quests
+// ---------------------------------------------------------------------------
+
+async function apiQuests(res) {
+  if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
+  const model = await ensureQuests();
+  if (!model) return sendJson(res, 200, { exists: false, chapters: [], quests: [] });
+  return sendJson(res, 200, questGraph(model));
 }
 
 function questSummary(model) {
@@ -332,42 +635,14 @@ function questGraph(model) {
   return { exists: true, dir: model.dir, chapters, quests };
 }
 
-function thinRecipe(recipe) {
-  return {
-    id: recipe.id,
-    type: recipe.type,
-    source: recipe.source,
-    file: recipe.file,
-    outputs: recipe.outputs,
-    inputs: recipe.inputs,
-    grid: recipe.grid ?? null,
-  };
-}
+// ---------------------------------------------------------------------------
+// lint
+// ---------------------------------------------------------------------------
 
-async function apiIcon(res, url) {
-  const jar = url.searchParams.get('jar') ?? '';
-  const entry = url.searchParams.get('entry') ?? '';
-  if (!state.root || !jar || !entry) return sendJson(res, 400, { error: 'jar and entry required' });
-  const jarPath = resolve(state.root, jar);
-  if (!jarPath.startsWith(resolve(state.root) + sep)) return sendJson(res, 403, { error: 'outside the pack' });
-  const cacheKey = `${jar}::${entry}`;
-  if (state.iconCache.has(cacheKey)) {
-    const buf = state.iconCache.get(cacheKey);
-    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=3600' });
-    return res.end(buf);
-  }
-  try {
-    if (!entry.startsWith('assets/') || entry.includes('..')) return sendJson(res, 400, { error: 'bad entry' });
-    const archive = await openJar(jarPath);
-    if (!archive.has(entry)) return sendJson(res, 404, { error: 'no such entry' });
-    const buf = await archive.read(entry, { maxSize: 4 * 1024 * 1024 });
-    if (state.iconCache.size >= ICON_CACHE_LIMIT) state.iconCache.clear();
-    state.iconCache.set(cacheKey, buf);
-    res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=3600' });
-    return res.end(buf);
-  } catch (err) {
-    return sendJson(res, 500, { error: String(err?.message ?? err) });
-  }
+async function apiLint(res) {
+  if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
+  const report = await lintPack(state.root, state.detection);
+  return sendJson(res, 200, { report, text: formatLintReport(report), ok: report.errors === 0 });
 }
 
 // ---------------------------------------------------------------------------
@@ -375,9 +650,9 @@ async function apiIcon(res, url) {
 // ---------------------------------------------------------------------------
 
 async function readEdits(root) {
-  const file = join(root, '.kjsftb', 'edits.json');
+  if (!root) return { recipes: [] };
   try {
-    const json = JSON.parse(await fs.readFile(file, 'utf8'));
+    const json = JSON.parse(await fs.readFile(join(root, '.kjsftb', 'edits.json'), 'utf8'));
     return { recipes: [], ...json };
   } catch {
     return { recipes: [] };
@@ -414,6 +689,7 @@ async function apiEdit(res, body) {
   await writeEdits(state.root, edits);
   const generated = await regenerateEdits(state.root);
   state.recipes = null;
+  packCache.get(state.root)?.recipes && (packCache.get(state.root).recipes = null);
   return sendJson(res, 200, { ok: true, edits, generated });
 }
 
@@ -437,7 +713,7 @@ async function regenerateEdits(root) {
   const text = generateRecipeScript(specs, {
     generation,
     version,
-    header: 'generated by the kjsftb workbench - edit the pack in the UI, not here',
+    header: 'generated by the MMSC workbench - edit the pack in the UI, not here',
   });
   const target = join(root, EDIT_SCRIPT);
   await fs.mkdir(join(root, 'kubejs', 'server_scripts'), { recursive: true });
@@ -468,7 +744,11 @@ async function apiSettings(res, body) {
   const current = await readSettings(state.root);
   const next = { ...current, ...body };
   await writeSettings(state.root, next);
-  if (typeof body.clientJar === 'string') state.items = null;
+  if (typeof body.clientJar === 'string') {
+    state.items = null;
+    const cached = packCache.get(state.root);
+    if (cached) cached.items = null;
+  }
   return sendJson(res, 200, next);
 }
 
@@ -483,6 +763,7 @@ async function apiBackgroundUpload(res, body) {
     }
     const settings = await readSettings(state.root);
     delete settings.background;
+    delete settings.backgroundAt;
     await writeSettings(state.root, settings);
     return sendJson(res, 200, { ok: true, cleared: true });
   }
@@ -501,8 +782,9 @@ async function apiBackgroundUpload(res, body) {
   await fs.writeFile(join(state.root, '.kjsftb', `background.${ext}`), buf);
   const settings = await readSettings(state.root);
   settings.background = ext;
+  settings.backgroundAt = Date.now();
   await writeSettings(state.root, settings);
-  return sendJson(res, 200, { ok: true, url: `/api/background?v=${Date.now()}`, ext });
+  return sendJson(res, 200, { ok: true, url: `/api/background?v=${settings.backgroundAt}`, ext });
 }
 
 async function apiBackgroundGet(res) {
@@ -554,4 +836,4 @@ async function readBody(req) {
   return JSON.parse(text);
 }
 
-export { formatSnbt };
+export { formatSnbt, stationOf, STATIONS };

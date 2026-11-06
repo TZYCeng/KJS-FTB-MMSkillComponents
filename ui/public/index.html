@@ -3,34 +3,39 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>KubeJS / FTBQ 工作台</title>
+<title>MMSC 工作台</title>
 <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
 <div class="app">
   <aside class="sidebar">
     <div class="brand">
-      <div class="logo">K</div>
-      <div><b>KJS 工作台</b><small>KubeJS + FTB Quests</small></div>
+      <div class="logo" id="brandLogo" title="MMSC"></div>
+      <div class="brandtext"><b>MMSC</b><small>KubeJS + FTB Quests</small></div>
     </div>
+    <div class="versions" id="versionLine">未打开整合包</div>
     <nav class="nav" id="nav">
       <button data-view="overview" class="active">总览</button>
       <button data-view="items">物品</button>
-      <button data-view="recipes">合成表</button>
-      <button data-view="quests">任务节点</button>
+      <button data-view="recipes">合成</button>
+      <button data-view="quests">任务</button>
       <button data-view="settings">设置</button>
     </nav>
-    <div class="pack-mini" id="packMini">未打开整合包</div>
   </aside>
 
   <main class="main">
     <header class="topbar">
       <h1 id="viewTitle">总览</h1>
       <span class="spacer"></span>
-      <span class="pill" id="pillPack">—</span>
+      <div class="pack-switch" id="packSwitch">
+        <button class="pack-btn" id="packBtn" title="切换整合包">
+          <span id="packBtnText">未打开整合包</span>
+          <span class="caret">▾</span>
+        </button>
+        <div class="pack-menu" id="packMenu" hidden></div>
+      </div>
       <span class="pill" id="pillBusy" style="display:none"><span class="spinner"></span></span>
-      <button id="btnOpen" class="ghost">切换整合包</button>
-      <button id="btnRescan" class="ghost">重新扫描</button>
+      <button id="btnRescan" class="ghost">重新检测</button>
     </header>
 
     <section class="view active" id="view-overview">
@@ -59,10 +64,10 @@
     <section class="view" id="view-recipes">
       <div class="toolbar">
         <div class="grow"><input id="recipeSearch" type="search" placeholder="按产物物品 id 搜索，例如 minecraft:chest" /></div>
-        <select id="recipeType" style="width:220px"><option value="">全部类型</option></select>
+        <select id="recipeType" style="width:200px"><option value="">全部类型</option></select>
         <button id="btnNewRecipe" class="primary">新建配方</button>
-        <button id="btnClearEdits" class="danger">清空本工具写入的改动</button>
       </div>
+      <div class="stations" id="stationBar"></div>
       <div class="hint" id="recipeCount"></div>
       <div class="split">
         <div>
@@ -81,49 +86,40 @@
         <select id="questChapter" style="width:240px"><option value="">全部章节</option></select>
         <span class="hint" id="questCount"></span>
         <span class="spacer" style="flex:1"></span>
+        <label class="ghost file-btn">任务背景图<input type="file" id="questBgFile" accept="image/png,image/jpeg,image/webp,image/gif" /></label>
+        <button id="questBgClear" class="ghost">移除背景</button>
         <button id="questFit">适应窗口</button>
       </div>
       <div class="split" style="grid-template-columns:1fr 320px">
-        <div class="quest-canvas" id="questCanvas"></div>
+        <div class="quest-canvas" id="questCanvas"><div class="empty">还没有读到任务。</div></div>
         <aside class="side-panel" id="questDetail"><div class="empty">点任务节点查看详情。</div></aside>
       </div>
     </section>
 
     <section class="view" id="view-settings">
       <div class="panel">
-        <h2>整合包目录</h2>
+        <h2>整合包</h2>
         <div class="form-grid">
-          <label>整合包路径</label>
+          <label>添加整合包</label>
           <div style="display:flex; gap:8px">
             <input id="setRoot" type="text" placeholder="D:\modpacks\MyPack" />
-            <button id="setOpen" class="primary">打开</button>
+            <button id="setOpen" class="primary">添加并打开</button>
           </div>
           <label>客户端 jar（可选）</label>
           <div style="display:flex; gap:8px">
-            <input id="setClientJar" type="text" placeholder="用于给 minecraft: 物品补图标与英文名的 1.21.1.jar" />
+            <input id="setClientJar" type="text" placeholder="给 minecraft: 物品补图标与英文名，例如 1.21.1.jar" />
             <button id="setSaveClient">保存并重扫</button>
           </div>
         </div>
-        <p class="hint" style="margin-top:10px">没有客户端 jar 时，原版物品只能靠游戏内 <code>/kubejs export</code> 导出清单补全；模组物品会自动从 jar 里读取。</p>
-      </div>
-
-      <div class="panel">
-        <h2>界面背景</h2>
-        <div class="form-grid">
-          <label>背景图片</label>
-          <div style="display:flex; gap:8px; align-items:center">
-            <input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp,image/gif" />
-            <button id="bgClear">移除背景</button>
-          </div>
-        </div>
-        <p class="hint" style="margin-top:10px">图片保存在整合包目录的 <code>.kjsftb/</code> 里，不会上传到任何地方。</p>
+        <p class="hint" style="margin-top:10px">整合包列表保存在 <code>~/.mmsc/library.json</code>，切换整合包时直接用上次的索引缓存，只有点「重新检测」才会重新扫描。</p>
+        <div id="packTable" style="margin-top:14px"></div>
       </div>
 
       <div class="panel">
         <h2>关于数据来源</h2>
         <div class="hint">
           物品：优先读游戏内 <code>/kubejs export</code> 生成的 <code>kubejs/exported/registries/item.json</code>，没有导出时扫描 mods 里每个 jar 的模型、贴图与语言文件。<br />
-          合成表：扫描 jar 内的 <code>data/&lt;ns&gt;/recipes</code>（1.21+ 为 <code>recipe</code>）、整合包的数据包、<code>kubejs/data</code>，以及现有脚本里的 <code>event.xxx(...)</code> 调用。<br />
+          合成：扫描 jar 内的 <code>data/&lt;ns&gt;/recipes</code>（1.21+ 为 <code>recipe</code>）、整合包的数据包、<code>kubejs/data</code>，以及现有脚本里的 <code>event.xxx(...)</code> 调用。<br />
           任务：读取 <code>config/ftbquests/quests</code> 下的 SNBT 章节、任务与 lang 文本。
         </div>
       </div>
@@ -134,6 +130,26 @@
 <div class="modal-backdrop" id="modal">
   <div class="modal" id="modalBody"></div>
 </div>
+
+<div class="modal-backdrop picker-backdrop" id="picker">
+  <div class="picker">
+    <div class="picker-head">
+      <h3 id="pickerTitle">选择物品</h3>
+      <input id="pickerSearch" type="search" placeholder="搜索物品 id 或名称" />
+    </div>
+    <div class="picker-grid" id="pickerGrid"></div>
+    <div class="picker-foot">
+      <button id="pickerPrev">上一页</button>
+      <button id="pickerNext">下一页</button>
+      <span class="hint" id="pickerCount"></span>
+      <span class="spacer" style="flex:1"></span>
+      <input id="pickerCustom" type="text" placeholder="或直接填 id / #tag" style="width:240px" />
+      <button id="pickerUse" class="primary">使用</button>
+      <button id="pickerClose" class="ghost">取消</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script src="/app.js"></script>
 </body>

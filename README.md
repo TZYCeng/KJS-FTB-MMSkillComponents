@@ -6,7 +6,9 @@ A skill + CLI + local web workbench for AI-assisted Minecraft modpack work: writ
 
 The whole point is version awareness. KubeJS changed its scripting surface twice (1.19 and 1.21), and FTB Quests moved quest text out of chapter files in 1.21. The same-looking code is a silent no-op — or a hard error — on the wrong generation. Everything here is derived from the mods' own source code, not from tutorials.
 
-New here? Read [`docs/handoff/v0.2.0.md`](docs/handoff/v0.2.0.md) first: it is written for whoever picks the repository up next (human or model) and records the architecture, the contracts and the open issues.
+New here? Read [`docs/handoff/v0.3.0.md`](docs/handoff/v0.3.0.md) first — it is
+the newest note for whoever picks the repository up next, and it links back to
+v0.2.1 (DSH panel post-mortem) and v0.2.0 (full architecture, contracts, gotchas).
 
 ## 中文速查
 
@@ -68,19 +70,40 @@ node bin/kjsftb.mjs ftbq tests/fixtures/ftbq-bad --ftbq 1.16
 node bin/kjsftb.mjs recipe new --spec templates/recipe-basic.json --generation 1.20.1
 ```
 
-## Workbench (local web UI)
+## MMSC workbench (local web UI)
 
 ```bash
 node bin/kjsftb.mjs ui "D:\packs\MyPack" --port 5599
 ```
 
-It binds `127.0.0.1` only and opens a browser. Five views:
+It binds `127.0.0.1` only and opens a browser. The workbench calls itself **MMSC**
+(creeper mark, `KubeJS + FTB Quests` underneath, detected MC/loader/KubeJS versions
+in the line below the logo). Five views:
 
-- **Overview** — detected Minecraft/KubeJS/FTBQ versions, loader, script folders, index counts.
-- **Items** — every item the pack can show, with icons and Chinese names where the jars carry a `zh_cn` lang table, searchable by id or name; per item it lists *how it is crafted* and *what it is used for*.
-- **Recipes** — recipe cards grouped by type, 3×3 pattern grids for shaped recipes, delete a recipe, or compose a new one (shaped, shapeless, smelting, blasting, smoking, campfire, stonecutting, smithing transform, smithing trim, custom JSON).
-- **Quests** — the FTB Quests graph on a snapped grid with dependency curves, zoom/pan, and titles read from `lang/<locale>.snbt`.
-- **Settings** — pack folder, optional client jar (for `minecraft:` icons), background image, data-source explanation.
+- **总览** — detected Minecraft/loader/KubeJS/FTBQ versions, script folders, index counts.
+- **物品** — every item the pack can show, with icons and Chinese names where the
+  jars carry a `zh_cn` lang table, searchable by id or name; per item it lists
+  *how it is crafted* and *what it is used for*.
+- **合成** — recipes with a work-station filter (`全部 / 工作台 / 熔炉系 / 切石机 /
+  锻造台 / 其他/模组机器`), 3×3 pattern grids, delete a recipe, or open the
+  **graphical builder**: choose a station (crafting table, furnace family,
+  stonecutter, smithing table, custom JSON), pick 有序/无序, click any slot to
+  search an item by id, set the output and count, and for cooking stations the
+  input, output, XP and time.
+- **任务** — the FTB Quests graph on a snapped grid with dependency curves,
+  zoom/pan and titles read from `lang/<locale>.snbt`; the **background image**
+  lives here (upload / remove / fit), drawn behind the nodes with a readable scrim.
+- **设置** — the pack table (open / rename / remove), optional client jar (for
+  `minecraft:` icons), data-source explanation.
+
+### Multiple packs, and why switching is instant
+
+The header dropdown lists every pack you have opened, kept in
+`$MMSC_HOME/library.json` (default `~/.mmsc/library.json`, override `MMSC_HOME` for
+tests). Picking another pack reuses the in-memory index — up to four packs stay
+cached — so nothing is rescanned. Jars are re-read only when you press
+**重新检测** (`POST /api/v1/refresh`), or when a per-pack cache under
+`<pack>/.kjsftb/` is invalidated by a changed jar timestamp.
 
 Edits never touch jars or existing scripts. They are recorded in `<pack>/.kjsftb/edits.json` and regenerated into a single file, `kubejs/server_scripts/zz_kjsftb_edits.js`, using the pack's generation; clearing every edit deletes that file. The UI then runs the same linter the CLI uses, so generated code is checked like hand-written code.
 
@@ -90,7 +113,7 @@ The frontend is deliberately decoupled: `ui/api-contract.mjs` defines API `v1`, 
 
 ## DSH control panel
 
-`dsh-plugin/mmsc-workbench` adds **Settings → 魔改工作台** to the DeepSeek Harness desktop app: change the port, pick the pack folder, and start / stop / restart / open the workbench without leaving the app. It is DSH-only — `client.js` returns immediately when `window.__ModuleLoader__` is absent, so the file is inert anywhere else.
+`dsh-plugin/mmsc-workbench` adds **Settings → 魔改工作台 (MMSC)** to the DeepSeek Harness desktop app: change the port, pick the pack folder, and start / stop / restart / open the workbench without leaving the app. It is DSH-only — `client.js` returns immediately when `window.__ModuleLoader__` is absent, so the file is inert anywhere else.
 
 ```bash
 plugin_manager action=install_bundle target=<repo>\dsh-plugin\mmsc-workbench
@@ -155,10 +178,14 @@ research/                 raw source-derived notes (large; not needed at runtime
 ## Development
 
 ```bash
-node --test                      # 57 tests
+npm test                         # 57 tests (node --test "tests/*.test.mjs")
 node scripts/gen-docs.mjs        # regenerate references/ftbquests-types.md
 node scripts/gen-docs.mjs --check
 ```
+
+Use `npm test` rather than a bare `node --test`: the bare form also picks up
+scratch files under `tmp/`, and `node --test tests/` (directory form) fails on
+this Node version.
 
 If you add a Minecraft/KubeJS version, extend `GENERATIONS` and `FTBQ_VERSIONS` in `scripts/versions.mjs`, add fixtures under `tests/fixtures/`, regenerate the types doc, and update the tables in `SKILL.md` and `references/version-matrix.md`.
 

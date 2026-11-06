@@ -160,7 +160,7 @@ test('start reports a running workbench with a URL and stop releases it', async 
     const fetched = await fetch(`${body.service.url}/api/v1/version`);
     assert.equal(fetched.status, 200);
     const version = await fetched.json();
-    assert.equal(version.name, 'kjsftb-workbench');
+    assert.equal(version.name, 'mmsc-workbench');
     assert.equal(version.apiVersion, 'v1');
 
     const stopped = await call('stop', {});

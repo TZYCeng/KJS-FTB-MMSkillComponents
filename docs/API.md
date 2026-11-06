@@ -25,7 +25,10 @@ contract listing lives in `ui/api-contract.mjs` and is returned by
 - Errors are `{ "error": "message" }` with status `400` / `403` / `404` / `500`.
 - Request bodies are JSON, capped at 16 MB, and are never cached.
 - Icons are cached in memory (400 entries); indexes are cached on disk under
-  `<pack>/.kjsftb/`.
+  `<pack>/.kjsftb/`. The known-pack library lives in `$MMSC_HOME/library.json`
+  (default `~/.mmsc/library.json`).
+- Switching packs reuses the in-memory index for up to four packs, so a switch is
+  instant; `POST /api/v1/refresh` is the only way to force a rebuild.
 
 ## Client-side configuration
 
@@ -42,7 +45,7 @@ window.MMSC_API_VERSION = 'v1';                 // default: v1
 ### `GET /api/v1/version`
 
 ```json
-{ "name": "kjsftb-workbench", "version": "0.2.0", "apiVersion": "v1",
+{ "name": "mmsc-workbench", "version": "0.3.0", "apiVersion": "v1",
   "endpoints": [{ "method": "GET", "path": "/api/v1/state", "summary": "..." }] }
 ```
 
@@ -55,6 +58,11 @@ counts, edit count, settings and a quest summary.
 {
   "open": true,
   "root": "D:\\packs\\atm10",
+  "name": "atm10",
+  "packs": [
+    { "path": "D:\\packs\\atm10", "name": "atm10", "addedAt": "…", "lastOpenedAt": "…",
+      "exists": true, "active": true }
+  ],
   "detection": {
     "root": "D:\\packs\\atm10",
     "name": "atm10",
@@ -68,23 +76,58 @@ counts, edit count, settings and a quest summary.
   "mods": [{ "id": "kubejs", "name": "KubeJS", "version": "2101.7.2-build.381", "description": "..." }],
   "recipes": { "fromJars": 1311, "fromData": 0, "fromScripts": 1, "skipped": 323, "recipes": 1312, "scriptOps": 1 },
   "recipeTypes": { "minecraft:crafting_shaped": 176, "minecraft:crafting_shapeless": 208 },
+  "stations": [
+    { "id": "crafting", "label": "工作台", "count": 384 },
+    { "id": "furnace", "label": "熔炉系", "count": 56 },
+    { "id": "stonecutter", "label": "切石机", "count": 106 },
+    { "id": "smithing", "label": "锻造台", "count": 1 },
+    { "id": "special", "label": "其他/模组机器", "count": 765 }
+  ],
   "ops": 1,
   "quests": { "chapters": 1, "quests": 6, "rewardTables": 0 },
-  "settings": { "clientJar": null, "background": false }
+  "settings": { "clientJar": null, "background": "png", "backgroundAt": 1793972197792 }
 }
 ```
+
+`stations` is the recipe count per work-station family (see `/recipes?station=`).
 
 `detection.kubejs.generationAssumed` is `true` when no version could be parsed and
 the newest generation was assumed — show that to the user, do not hide it.
 
-### `POST /api/v1/open`
+### `GET /api/v1/packs`
 
 ```json
-{ "dir": "D:\\packs\\atm10" }
+{ "active": "D:\\packs\\atm10",
+  "packs": [{ "path": "D:\\packs\\atm10", "name": "atm10", "exists": true, "active": true }] }
 ```
 
-Resets all indexes and returns `{ "ok": true, "state": { ...same as /state... } }`.
-A relative `dir` resolves against the server's working directory.
+The library is shared by every workbench session on this machine. Most recently
+opened packs come first.
+
+### `POST /api/v1/packs`
+
+| op | body | effect |
+| --- | --- | --- |
+| `add` | `{ "op": "add", "dir": "<path>", "name"?: "…" }` | remembers the pack and opens it |
+| `select` | `{ "op": "select", "dir": "<path>" }` | opens it, reusing the cached index |
+| `remove` | `{ "op": "remove", "dir": "<path>" }` | forgets it (files are untouched) |
+| `rename` | `{ "op": "rename", "dir": "<path>", "name": "…" }` | changes the display name |
+
+Returns `{ "ok": true, "packs": [...], "state": { ...same as /state... } }`.
+A relative `dir` resolves against the server's working directory. Selecting a
+pack that is already in the index cache does **not** rescan jars.
+
+`POST /api/v1/open { "dir": "…" }` is a backwards-compatible alias for `select`.
+
+### `POST /api/v1/refresh`
+
+```json
+{ "scope": "all" }   // all | items | recipes | quests
+```
+
+Drops the cached index for the active pack and rebuilds the requested part.
+Returns `{ "ok": true, "scope": "all", "ms": 189, "state": { ... } }`. This is the
+only call that re-reads jars.
 
 ### `GET /api/v1/items?q=&mod=&limit=&offset=&withIcon=1`
 
@@ -109,12 +152,12 @@ under `assets/` and the jar must be inside the pack, otherwise `403`.
 
 Same bytes resolved through the item index; `404` when the id has no icon.
 
-### `GET /api/v1/recipes?output=&input=&q=&type=&limit=&offset=`
+### `GET /api/v1/recipes?output=&input=&q=&type=&station=&limit=&offset=`
 
 ```json
 { "total": 176, "offset": 0, "limit": 40, "recipes": [
   { "id": "botanypots:botanypots/crafting/black_concrete_botany_pot",
-    "type": "minecraft:crafting_shaped", "source": "jar", "file": "mods/botany-pots.jar",
+    "type": "minecraft:crafting_shaped", "station": "crafting", "source": "jar", "file": "mods/botany-pots.jar",
     "outputs": [{ "id": "botanypots:black_concrete_botany_pot", "count": 1 }],
     "inputs": [{ "id": "minecraft:black_concrete", "count": 5 }, { "id": "minecraft:flower_pot", "count": 1 }],
     "grid": [[{ "id": "minecraft:black_concrete", "count": 1 }, null, { "id": "minecraft:black_concrete", "count": 1 }],
@@ -124,6 +167,9 @@ Same bytes resolved through the item index; `404` when the id has no icon.
 
 - `output` / `input` are exact item ids; `output` also accepts a recipe id.
 - `q` matches recipe id and type, case-insensitively.
+- `station` filters by work-station family (`crafting`, `furnace`, `stonecutter`,
+  `smithing`, `special`). Every recipe also carries its own `station` field, and
+  `/state.stations` gives the counts.
 - `grid` is present for shaped recipes only; `null` marks an empty slot.
 - Default ordering puts vanilla crafting families first, then recipes with more
   outputs, then ids, so the first page is editable content rather than modded
@@ -187,15 +233,18 @@ Recipe spec fields: `kind` (`shaped`, `shapeless`, `smelting`, `blasting`,
 
 ### `GET /api/v1/background` and `POST /api/v1/background`
 
-`GET` returns the image bytes (`png`, `jpg`, `webp`, `gif`) or `404`.
+The image is the **quest page backdrop** (the frontend only draws it on the 任务
+view). `GET` returns the bytes (`png`, `jpg`, `webp`, `gif`) or `404`.
 `POST { "type": "image/png", "data": "data:image/png;base64,..." }` stores it
-(max 12 MB), `POST { "clear": true }` removes it.
+(max 12 MB) and returns `{ "ok": true, "url": "/api/background?v=<ms>", "ext": "png" }`;
+`POST { "clear": true }` removes it. The file is `<pack>/.kjsftb/background.<ext>`
+and is never uploaded anywhere.
 
 ### `GET /api/v1/settings` and `POST /api/v1/settings`
 
-`{ "clientJar": null, "background": false }`.
-`POST { "clientJar": "C:\\...\\1.21.1.jar", "background": true }` — `clientJar`
-lets the index name and icon `minecraft:` items; it must be a real client jar.
+`{ "clientJar": null, "background": "png", "backgroundAt": 1793972197792 }`.
+`POST { "clientJar": "C:\\...\\1.21.1.jar" }` — `clientJar` lets the index name
+and icon `minecraft:` items; it must be a real client jar.
 
 ## Guarantees a replacement frontend can rely on
 

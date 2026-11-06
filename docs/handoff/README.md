@@ -7,6 +7,7 @@ Read the newest version file first, then follow its pointers into the older ones
 
 | Version | File | What it adds |
 | --- | --- | --- |
+| 0.3.0 | [v0.3.0.md](v0.3.0.md) | MMSC redesign: multi-pack library, cache-only switching, station filter, graphical builder, quest backdrop |
 | 0.2.1 | [v0.2.1.md](v0.2.1.md) | DSH panel fix (empty HTTP 400), restart requirement, 57-test baseline |
 | 0.2.0 | [v0.2.0.md](v0.2.0.md) | The full architecture: skill, CLI, workbench, DSH panel, contracts, gotchas |
 
@@ -18,8 +19,10 @@ Read the newest version file first, then follow its pointers into the older ones
 2. Never round-trip source files through PowerShell `Get-Content`/`Set-Content`:
    it adds a BOM and mangles non-ASCII. Use the editor tools or
    `[System.IO.File]::ReadAllText/WriteAllText` with a UTF-8 encoder.
-3. Verify with `node --test` and `node scripts/gen-docs.mjs --check` before
-   claiming anything is done. Counts live in the version files.
+3. Verify with `npm test` (glob form of `node --test`) and
+   `node scripts/gen-docs.mjs --check` before claiming anything is done. Counts
+   live in the version files. Do not use a bare `node --test`: it also picks up
+   scratch files under `tmp/`.
 4. **The DSH settings panel is DSH-only.** `dsh-plugin/mmsc-workbench/client.js`
    guards on `window.__ModuleLoader__` and returns silently outside DSH — do not
    try to render that panel in a plain browser, a static preview, or another
