@@ -5,7 +5,7 @@
  *
  * Sources, in override order (later overlays earlier):
  *   1. mod jars          data/<ns>/recipes/**.json, data/<ns>/recipe/**.json
- *   2. pack datapacks    datapacks/**​/data/<ns>/recipes|recipe/**.json
+ *   2. pack datapacks    datapacks/<pack>/data/<ns>/recipes|recipe/**.json
  *   3. kubejs data       kubejs/data/<ns>/recipes|recipe/**.json
  *   4. kubejs scripts    kubejs/{server,client,startup}_scripts/**.js
  */
@@ -14,9 +14,12 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { classify, listModJars, openJar, relPath } from './jars.mjs';
 
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 5;
 const CACHE_FILE = join('.kjsftb', 'recipes-cache.json');
-const RECIPE_DIR = /^(?:recipes?|recipe)\/(.+)\.json$/;
+// Relative to a `data/` root the path keeps its namespace segment
+// (`testmod/recipes/gadget.json`), and datapack sub-folders may add one more
+// level before `recipes/`. Accept both shapes.
+const RECIPE_DIR = /^(?:[^/]+\/)?(?:recipes?|recipe)\/(.+)\.json$/;
 const MAX_SCRIPT_BYTES = 4 * 1024 * 1024;
 
 /** @param {string} root */
@@ -360,18 +363,45 @@ function scriptRecipe(method, args, file, line, counter) {
   const out = (v, fallback = 1) => parseIngredient(v, fallback);
   const outs = [];
   const ins = [];
+  /** 3x3 placement for shaped recipes, mirroring the JSON recipe path. */
+  const grid = [];
   switch (method) {
     case 'shaped':
     case 'vanillaShaped': {
       const result = out(args[0]);
       if (result) outs.push(result);
-      for (const row of Array.isArray(args[1]) ? args[1] : []) {
-        for (const ch of String(row)) {
-          if (ch === ' ') continue;
-          const ing = parseIngredient(args[2]?.[ch]);
-          if (ing) ins.push(ing);
+      const pattern = Array.isArray(args[1]) ? args[1].map((row) => String(row)) : [];
+      const key = args[2] && typeof args[2] === 'object' ? args[2] : {};
+      // Keep the same 3x3 shape the JSON path produces, so the UI draws a grid
+      // for script recipes too. Keyed ingredients appear once with a count.
+      const cells = [];
+      const counts = new Map();
+      for (const row of pattern.slice(0, 3)) {
+        const slots = [];
+        for (const ch of row.slice(0, 3)) {
+          if (ch === ' ') {
+            slots.push(null);
+            continue;
+          }
+          const ing = parseIngredient(key[ch]);
+          slots.push(ing ? { id: ing.id, tag: ing.tag, count: ing.count ?? 1 } : null);
+          if (ing) {
+            const mark = ing.id ?? (ing.tag ? `#${ing.tag}` : JSON.stringify(ing));
+            const seen = counts.get(mark);
+            if (seen) seen.count += 1;
+            else {
+              const entry = { ...ing, count: 1 };
+              counts.set(mark, entry);
+              cells.push(entry);
+            }
+          }
         }
+        grid.push(slots);
       }
+      // Pad to a full 3x3 so script and JSON recipes render identically.
+      for (const slots of grid) while (slots.length < 3) slots.push(null);
+      while (grid.length < 3) grid.push([null, null, null]);
+      for (const entry of cells) ins.push({ ...entry });
       break;
     }
     case 'shapeless':
@@ -433,6 +463,7 @@ function scriptRecipe(method, args, file, line, counter) {
     line,
     outputs: outs,
     inputs: ins,
+    grid: grid.length ? grid : null,
     raw: null,
   };
 }

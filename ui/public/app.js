@@ -870,10 +870,15 @@
       rect.setAttribute('height', nodeH);
       rect.setAttribute('rx', 8);
       group.appendChild(rect);
-      const label = pos.quest.title || pos.quest.subtitle || iconName(pos.quest.icon) || pos.quest.id || '';
+      const shortId = pos.quest.id ? `任务 ${pos.quest.id.slice(0, 6)}` : '任务';
+      const label =
+        pos.quest.title ||
+        pos.quest.subtitle ||
+        iconName(pos.quest.icon) ||
+        shortId;
       const detail = pos.quest.title
         ? pos.quest.subtitle || pos.quest.tasks?.map((t) => t.type).filter(Boolean).join(', ') || ''
-        : pos.quest.tasks?.map((t) => t.type).filter(Boolean).join(', ') || '';
+        : pos.quest.tasks?.map((t) => t.type).filter(Boolean).join(', ') || pos.quest.id || '';
       const title = document.createElementNS(svg.namespaceURI, 'text');
       title.setAttribute('x', 9);
       title.setAttribute('y', 19);
