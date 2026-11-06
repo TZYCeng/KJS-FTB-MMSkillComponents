@@ -2,7 +2,7 @@
 
 Audience: the next model or person picking this repository up. This file was
 written by re-reading **every module and the whole project history** on
-2026-11-06, at commit `4d5dcc6` (`master`, pushed to
+2026-11-06, on the 0.3.0 line (`master`, pushed to
 `origin`). It supersedes the architecture-level parts of `v0.2.0.md` and
 `v0.2.1.md`; those two (and `v0.3.0.md`) remain useful as change logs and as a
 record of the DSH 400 debugging.
@@ -841,4 +841,5 @@ Nothing in this list blocks using the tool. The baseline is green
   `requestBody: 'buffered'`。失败时唯一线索是
   `$DSH_HOME/mmsc-load.log`。
 - 验证基线：`npm test` 57/57、`node scripts/gen-docs.mjs --check` 退出 0、
-  工作台与设置面板均已实机验证。当前 HEAD `4d5dcc6`，已推送 `master`。
+  工作台与设置面板均已实机验证。本文件写在 0.3.0 线上，之后只可能有小修与文档改动；
+  精确 HEAD 见 `git log` 顶部。仓库已推送 `master`。

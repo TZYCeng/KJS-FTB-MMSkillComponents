@@ -10,7 +10,7 @@ that", not for "what is where".
 
 | Scope | File | What it covers |
 | --- | --- | --- |
-| **current (v0.3.0, `a32b5d8`)** | [CURRENT.md](CURRENT.md) | Full re-read of the code and history: architecture, module reference with anchors, API surface, tests, gotchas, open work, how to extend |
+| **current (v0.3.0)** | [CURRENT.md](CURRENT.md) | Full re-read of the code and history: architecture, module reference with anchors, API surface, tests, gotchas, open work, how to extend |
 | 0.3.0 | [v0.3.0.md](v0.3.0.md) | MMSC redesign: multi-pack library, cache-only switching, station filter, graphical builder, quest backdrop |
 | 0.2.1 | [v0.2.1.md](v0.2.1.md) | DSH panel fix (empty HTTP 400), restart requirement, 57-test baseline |
 | 0.2.0 | [v0.2.0.md](v0.2.0.md) | The full architecture: skill, CLI, workbench, DSH panel, contracts, gotchas |
