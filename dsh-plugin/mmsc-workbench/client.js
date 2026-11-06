@@ -469,9 +469,9 @@
               h('span', { style: css.key }, t('pid')),
               h('span', { style: css.value }, service.pid ? String(service.pid) : '—'),
               h('span', { style: css.key }, t('repo')),
-              h('span', { style: css.value }, data.repo?.path ?? '—'),
+              h('span', { style: css.value }, data?.repo?.path ?? '—'),
             ),
-            data.repo && data.repo.exists === false
+            data?.repo && data.repo.exists === false
               ? h('div', { style: css.error }, t('notFound'))
               : null,
             service.log
