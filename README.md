@@ -155,7 +155,7 @@ research/                 raw source-derived notes (large; not needed at runtime
 ## Development
 
 ```bash
-node --test                      # 56 tests
+node --test                      # 57 tests
 node scripts/gen-docs.mjs        # regenerate references/ftbquests-types.md
 node scripts/gen-docs.mjs --check
 ```

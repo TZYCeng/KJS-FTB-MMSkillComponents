@@ -1,6 +1,6 @@
 {
   "name": "@tzyc/mmsc-workbench",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "description": "DSH settings section for the MMSC modpack workbench: edits the workbench port and pack directory, starts/stops/restarts the local kjsftb ui server, and opens it in the browser.",

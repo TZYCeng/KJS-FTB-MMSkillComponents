@@ -254,9 +254,10 @@ export function apply(ctx) {
     return { portChanged, repoChanged };
   };
 
-  ctx.effect(
-    () =>
-      ctx.inject(['connection'], (scope) => {
+  // Register directly, the way dsh-model-visibility does: wrapping ctx.inject
+  // in ctx.effect makes the effect factory return `undefined`, which aborts the
+  // row before any route exists.
+  ctx.inject(['connection'], (scope) => {
         const register = (route) =>
           scope.effect(
             () => scope.connection.fetch.register(route),
@@ -353,9 +354,7 @@ export function apply(ctx) {
             return json({ ok: opened, url: target, ...describe() });
           },
         });
-      }),
-    'mmsc-workbench: routes',
-  );
+  });
 
   // Never leave an orphaned server behind when the plugin is unloaded.
   ctx.effect(() => () => void supervisor.stop(), 'mmsc-workbench: shutdown');

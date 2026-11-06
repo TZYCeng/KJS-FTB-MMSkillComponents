@@ -67,6 +67,7 @@
           loadFailed: '无法读取工作台状态：{message}',
           pingOk: '主机路由已连通（{api}/ping · pid {pid} · {entry}）',
           pingFailed: '主机路由不可达（{api}/ping）：{message}',
+          restartHint: 'host 行只在 DSH 启动时装配，重启桌面应用后再打开本页。',
           actionFailed: '操作失败：{message}',
           notFound:
             '没有找到 bin/kjsftb.mjs。请确认「工具仓库」指向 KJS-FTB-MMSkillComponents 仓库根目录，或安装后重新填写。',
@@ -108,6 +109,7 @@
           loadFailed: 'Cannot read workbench status: {message}',
           pingOk: 'Host route reachable ({api}/ping · pid {pid} · {entry})',
           pingFailed: 'Host route unreachable ({api}/ping): {message}',
+          restartHint: 'The host row mounts only at DSH startup - restart the desktop app, then reopen this page.',
           actionFailed: 'Action failed: {message}',
           notFound: 'bin/kjsftb.mjs was not found. Point "Repository" at the KJS-FTB-MMSkillComponents root.',
           saved: 'Saved',
@@ -279,7 +281,11 @@
                 t('pingOk', { api: API, pid: ping?.pid ?? '?', entry: ping?.entry ?? '?' }),
               );
             } catch (pingError) {
-              setError(t('pingFailed', { api: API, message: pingError.message }));
+              setError(
+                t('pingFailed', { api: API, message: pingError.message }) +
+                  ' · ' +
+                  t('restartHint'),
+              );
             }
           }
           try {

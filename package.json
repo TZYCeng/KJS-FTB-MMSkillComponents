@@ -1,6 +1,6 @@
 {
   "name": "kjs-ftb-mmskillcomponents",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Version-aware KubeJS + FTB Quests tooling for Minecraft modpacks: a DSH skill, a CLI and a local workbench UI",
   "type": "module",

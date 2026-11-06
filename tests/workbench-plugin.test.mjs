@@ -23,7 +23,12 @@ function makeContext() {
   const ctx = {
     effect(factory) {
       const dispose = factory();
-      if (typeof dispose === 'function') disposers.push(dispose);
+      // Real Cordis rejects an effect whose factory does not return a disposer,
+      // which aborts the whole load. Mirror that so the mistake cannot come back.
+      if (typeof dispose !== 'function') {
+        throw new TypeError('effect factory must return a disposer');
+      }
+      disposers.push(dispose);
       return dispose;
     },
     inject(_names, callback) {
@@ -66,6 +71,20 @@ async function boot({ home } = {}) {
 }
 
 const tempHome = () => fs.mkdtempSync(path.join(os.tmpdir(), 'mmsc-home-'));
+
+test('apply registers every route the settings panel calls', async () => {
+  const home = tempHome();
+  const { ctx, restore } = await boot({ home });
+  try {
+    const expected = ['ping', 'status', 'config', 'start', 'stop', 'restart', 'open'];
+    for (const name of expected) {
+      assert.ok(ctx.routes.has(`/api/mmsc/${name}`), `route ${name} registered`);
+    }
+  } finally {
+    ctx.disposeAll();
+    restore();
+  }
+});
 
 test('status route describes config, repo and service before anything is started', async () => {
   const home = tempHome();

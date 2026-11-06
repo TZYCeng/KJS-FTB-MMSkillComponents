@@ -7,7 +7,7 @@
  */
 export const API_VERSION = 'v1';
 export const SERVER_NAME = 'kjsftb-workbench';
-export const SERVER_VERSION = '0.2.0';
+export const SERVER_VERSION = '0.2.1';
 
 /** Every endpoint the server answers, with method, path and a short shape. */
 export const ENDPOINTS = [
