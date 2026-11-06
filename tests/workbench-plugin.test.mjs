@@ -37,6 +37,15 @@ function makeContext() {
     connection: {
       fetch: {
         register(route) {
+          // Mirror the real ConnectionFetchRoute contract: a route without
+          // `requestBody` is rejected by the Host, which aborts the whole row
+          // and leaves the settings page with an empty 400.
+          if (route.requestBody !== 'buffered' && route.requestBody !== 'streaming') {
+            throw new TypeError(`route ${route.path} is missing requestBody`);
+          }
+          if (!route.path.startsWith('/api/')) {
+            throw new TypeError(`route ${route.path} must live under /api`);
+          }
           routes.set(route.path, route);
           return () => routes.delete(route.path);
         },
@@ -97,7 +106,8 @@ test('status route describes config, repo and service before anything is started
     assert.equal(body.repo.exists, true, 'repo root resolves from the plugin directory');
     assert.equal(body.repo.bin.endsWith('kjsftb.mjs'), true);
     assert.match(body.api.base, /^\/api\/mmsc$/);
-    assert.deepEqual(fs.readdirSync(home), [], 'reading status must not write the store');
+    // Only the load log may appear: the config store must stay untouched.
+    assert.deepEqual(fs.readdirSync(home).filter((name) => name !== 'mmsc-load.log'), []);
   } finally {
     ctx.disposeAll();
     restore();

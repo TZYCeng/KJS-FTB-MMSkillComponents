@@ -33,6 +33,23 @@ const DEFAULTS = {
   repoPath: '',
 };
 
+/**
+ * Append one line to `$DSH_HOME/mmsc-load.log`.
+ *
+ * The Host half is loaded before any of our routes exist, so a throw inside
+ * `apply` is invisible from the settings page: the client only sees an empty
+ * 400 from the RPC interceptor. This log is the only reliable evidence, and it
+ * is intentionally tiny and append-only.
+ */
+function note(message) {
+  try {
+    const home = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+    fs.appendFileSync(path.join(home, 'mmsc-load.log'), `${new Date().toISOString()} ${message}\n`);
+  } catch {
+    // Logging must never break the plugin.
+  }
+}
+
 /** `$DSH_HOME/mmsc-workbench.json`; the profile patch layer is not a store. */
 function storeFile() {
   const home = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
@@ -227,8 +244,10 @@ function openInBrowser(url) {
 }
 
 export function apply(ctx) {
+  note(`apply:enter (pid ${process.pid})`);
   const supervisor = createSupervisor();
   let config = readConfig();
+  try {
 
   const describe = () => {
     const repo = resolveRepo(config);
@@ -257,12 +276,12 @@ export function apply(ctx) {
   // Register directly, the way dsh-model-visibility does: wrapping ctx.inject
   // in ctx.effect makes the effect factory return `undefined`, which aborts the
   // row before any route exists.
-  ctx.inject(['connection'], (scope) => {
+    ctx.inject(['connection'], (scope) => {
         const register = (route) =>
-          scope.effect(
-            () => scope.connection.fetch.register(route),
-            `mmsc-workbench: ${route.path}`,
-          );
+          scope.effect(() => {
+            note(`route ${route.methods.join(',')} ${route.path}`);
+            return scope.connection.fetch.register(route);
+          }, `mmsc-workbench: ${route.path}`);
 
         /** Read a JSON body, tolerating an absent one. */
         const body = async (request) => {
@@ -280,6 +299,10 @@ export function apply(ctx) {
         register({
           path: `${API}/ping`,
           methods: ['GET'],
+          // `requestBody` is part of the route contract for every method; the
+          // working dsh-model-visibility routes set it on GET too. Omitting it
+          // makes register() reject the route and aborts the row.
+          requestBody: 'buffered',
           async fetch() {
             return json({ ok: true, entry: ENTRY, pid: process.pid, api: API });
           },
@@ -288,6 +311,7 @@ export function apply(ctx) {
         register({
           path: `${API}/status`,
           methods: ['GET'],
+          requestBody: 'buffered',
           async fetch() {
             return json(describe());
           },
@@ -358,6 +382,11 @@ export function apply(ctx) {
 
   // Never leave an orphaned server behind when the plugin is unloaded.
   ctx.effect(() => () => void supervisor.stop(), 'mmsc-workbench: shutdown');
+    note('apply:ok (7 routes registered)');
+  } catch (error) {
+    note(`apply:threw ${error?.stack ?? error}`);
+    throw error;
+  }
 }
 
 export const inject = ['connection'];

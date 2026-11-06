@@ -4,7 +4,11 @@
 # (package.json exports ".") supervises the `kjsftb ui` child process and
 # serves /api/mmsc/*; the browser half (exports "./client") renders
 # Settings -> Modding workbench and talks to that row.
+#
+# Keep this row identical in shape to the known-good dsh-imagegen row: a bare
+# `insert` with id + package name and no `config` block. The plugin has no
+# Config schema, and a `config: {}` block on a schemaless row is not part of
+# the pattern the working bundles use.
 - insert:
     - id: mmsc-workbench
       name: '@tzyc/mmsc-workbench'
-      config: {}

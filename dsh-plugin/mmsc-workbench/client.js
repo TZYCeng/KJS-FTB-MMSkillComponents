@@ -68,6 +68,11 @@
           pingOk: '主机路由已连通（{api}/ping · pid {pid} · {entry}）',
           pingFailed: '主机路由不可达（{api}/ping）：{message}',
           restartHint: 'host 行只在 DSH 启动时装配，重启桌面应用后再打开本页。',
+        hostOffline: '面板未接通',
+        hostControls: '主机半未接通时，启动 / 停止 / 重启 / 保存不可用；「打开」仍会直接用端口访问工作台。',
+        probeUp: '工作台端口 {port} 可访问',
+        probeDown: '工作台端口 {port} 未响应（未启动或端口不同）',
+        probeUnknown: '正在探测工作台端口…',
           actionFailed: '操作失败：{message}',
           notFound:
             '没有找到 bin/kjsftb.mjs。请确认「工具仓库」指向 KJS-FTB-MMSkillComponents 仓库根目录，或安装后重新填写。',
@@ -110,6 +115,11 @@
           pingOk: 'Host route reachable ({api}/ping · pid {pid} · {entry})',
           pingFailed: 'Host route unreachable ({api}/ping): {message}',
           restartHint: 'The host row mounts only at DSH startup - restart the desktop app, then reopen this page.',
+        hostOffline: 'Panel offline',
+        hostControls: 'Start / stop / restart / save need the host half; Open still reaches the workbench port directly.',
+        probeUp: 'Workbench port {port} is reachable',
+        probeDown: 'Workbench port {port} does not answer (not started, or a different port)',
+        probeUnknown: 'Probing the workbench port…',
           actionFailed: 'Action failed: {message}',
           notFound: 'bin/kjsftb.mjs was not found. Point "Repository" at the KJS-FTB-MMSkillComponents root.',
           saved: 'Saved',
@@ -239,12 +249,19 @@
         );
       }
 
+      /** Shown before the Host answers, so the controls are never a dead end. */
+      const BLANK_FORM = { port: '5599', packDir: '', autoOpen: true, repoPath: '' };
+
       function WorkbenchSection(props) {
         const [data, setData] = React.useState(null);
-        const [form, setForm] = React.useState(null);
+        const [form, setForm] = React.useState(BLANK_FORM);
         const [busy, setBusy] = React.useState('');
         const [error, setError] = React.useState('');
+        /** Host-half failure: the panel keeps working, only its controls degrade. */
+        const [hostError, setHostError] = React.useState('');
         const [notice, setNotice] = React.useState('');
+        /** Direct browser probe of the workbench port, independent of the Host. */
+        const [probe, setProbe] = React.useState('unknown');
 
         const lang = (() => {
           try {
@@ -256,45 +273,69 @@
         })();
         const t = (key, vars) => fmt((DICT[lang] || DICT.en)[key] ?? key, vars);
 
+        /** Seed the form once, so the 5s poll never overwrites half-typed input. */
+        const seeded = React.useRef(false);
+
         const adopt = React.useCallback((next) => {
           setData(next);
-          if (next && next.config) {
-            setForm((previous) =>
-              previous ?? {
-                port: String(next.config.port),
-                packDir: next.config.packDir ?? '',
-                autoOpen: next.config.autoOpen !== false,
-                repoPath: next.config.repoPath ?? '',
-              },
-            );
+          if (next && next.config && !seeded.current) {
+            seeded.current = true;
+            setForm({
+              port: String(next.config.port),
+              packDir: next.config.packDir ?? '',
+              autoOpen: next.config.autoOpen !== false,
+              repoPath: next.config.repoPath ?? '',
+            });
           }
         }, []);
 
         const pinged = React.useRef(false);
+        const portRef = React.useRef(form.port);
+        portRef.current = form.port;
+
+        /** Talk to the workbench directly: works even when the Host half is dead. */
+        const probeWorkbench = React.useCallback(async () => {
+          const port = Number(portRef.current) || 5599;
+          try {
+            const response = await fetch(`http://127.0.0.1:${port}/api/v1/version`, {
+              signal: AbortSignal.timeout(1500),
+            });
+            setProbe(response.ok ? 'up' : 'down');
+            return response.ok;
+          } catch {
+            setProbe('down');
+            return false;
+          }
+        }, []);
 
         const refresh = React.useCallback(async () => {
           if (!pinged.current) {
             pinged.current = true;
             try {
               const ping = await call('ping');
+              setHostError('');
               setNotice(
                 t('pingOk', { api: API, pid: ping?.pid ?? '?', entry: ping?.entry ?? '?' }),
               );
             } catch (pingError) {
-              setError(
-                t('pingFailed', { api: API, message: pingError.message }) +
-                  ' · ' +
-                  t('restartHint'),
+              let base = API;
+              try {
+                base = `${document.baseURI} → ${API}`;
+              } catch {
+                base = API;
+              }
+              setHostError(
+                t('pingFailed', { api: base, message: pingError.message }) + ' · ' + t('restartHint'),
               );
             }
           }
+          await probeWorkbench();
           try {
             adopt(await call('status'));
-            setError('');
           } catch (error) {
-            setError(t('loadFailed', { message: error.message }));
+            setHostError(t('loadFailed', { message: error.message }));
           }
-        }, [adopt, t]);
+        }, [adopt, probeWorkbench, t]);
 
         React.useEffect(() => {
           refresh();
@@ -356,30 +397,39 @@
             return result;
           });
 
+        const localUrl = () => `http://127.0.0.1:${Number(form.port) || 5599}/`;
+
         const open = () =>
           run('open', async () => {
+            // Without the Host half there is no /api/mmsc/open, but the browser
+            // can still reach the workbench port directly.
+            if (!data) {
+              const url = localUrl();
+              try {
+                window.open(url, '_blank', 'noopener');
+              } catch {
+                // popup blocked; the URL is shown in the notice either way
+              }
+              setNotice(t('opened', { url }));
+              return null;
+            }
             const result = await post('open');
             if (result?.url) setNotice(t('opened', { url: result.url }));
             return result;
           });
 
-        if (!data || !form) {
-          return h(
-            'div',
-            { style: css.root },
-            h('div', { style: css.title }, t('title')),
-            h('div', { style: css.hint }, error || t('startingLabel')),
-          );
-        }
-
-        const service = data.service ?? {};
+        const service = data?.service ?? {};
         const running = service.status === 'running';
-        const statusLabel = {
-          running: t('running'),
-          starting: t('starting'),
-          error: t('error'),
-          stopped: t('stopped'),
-        }[service.status] ?? service.status;
+        const hostReady = Boolean(data);
+        const probeLabel =
+          probe === 'up' ? t('probeUp', { port: Number(form.port) || 5599 }) : probe === 'down'
+            ? t('probeDown', { port: Number(form.port) || 5599 })
+            : t('probeUnknown');
+        const statusLabel = hostReady
+          ? { running: t('running'), starting: t('starting'), error: t('error'), stopped: t('stopped') }[
+              service.status
+            ] ?? service.status
+          : t('hostOffline');
 
         const disabled = Boolean(busy);
 
@@ -397,6 +447,7 @@
               { style: css.row },
               h('span', { style: { fontSize: 13, fontWeight: 600 } }, t('status')),
               h('span', { style: css.pill(running) }, statusLabel),
+              h('span', { style: css.hint }, probeLabel),
               service.url
                 ? h(
                     'button',
@@ -487,12 +538,14 @@
             h(
               'div',
               { style: css.row },
-              h('button', { style: css.primary, onClick: save, disabled }, busy === 'save' ? t('saving') : t('save')),
-              h('button', { style: css.button, onClick: start, disabled }, t('start')),
-              h('button', { style: css.button, onClick: restart, disabled }, t('restart')),
-              h('button', { style: css.button, onClick: stop, disabled }, t('stop')),
+              h('button', { style: css.primary, onClick: save, disabled: !hostReady || disabled }, busy === 'save' ? t('saving') : t('save')),
+              h('button', { style: css.button, onClick: start, disabled: !hostReady || disabled }, t('start')),
+              h('button', { style: css.button, onClick: restart, disabled: !hostReady || disabled }, t('restart')),
+              h('button', { style: css.button, onClick: stop, disabled: !hostReady || disabled }, t('stop')),
               h('button', { style: css.button, onClick: open, disabled }, t('open')),
             ),
+            hostError ? h('div', { style: css.error }, hostError) : null,
+            hostError ? h('div', { style: css.hint }, t('hostControls')) : null,
             error ? h('div', { style: css.error }, error) : null,
             !error && notice ? h('div', { style: css.ok }, notice) : null,
           ),
