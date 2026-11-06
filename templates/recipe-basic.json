@@ -1,0 +1,46 @@
+{
+  "priority": 10,
+  "version": "2101.7.2",
+  "header": "Example recipes - regenerate with: kjsftb recipe new --spec templates/recipe-basic.json",
+  "recipes": [
+    {
+      "kind": "shaped",
+      "output": "minecraft:chest",
+      "count": 1,
+      "pattern": ["PPP", "P P", "PPP"],
+      "key": { "P": "minecraft:oak_planks" }
+    },
+    {
+      "kind": "shapeless",
+      "output": "minecraft:stick",
+      "count": 4,
+      "ingredients": ["minecraft:oak_planks", "minecraft:oak_planks"]
+    },
+    {
+      "kind": "smelting",
+      "output": "minecraft:glass",
+      "input": "minecraft:sand",
+      "xp": 0.1,
+      "cookingTime": 200
+    },
+    {
+      "kind": "stonecutting",
+      "output": "minecraft:stone_slab",
+      "count": 2,
+      "input": "minecraft:stone"
+    },
+    {
+      "kind": "smithing",
+      "template": "minecraft:netherite_upgrade_smithing_template",
+      "base": "minecraft:diamond_sword",
+      "addition": "minecraft:netherite_ingot",
+      "output": "minecraft:netherite_sword"
+    },
+    {
+      "kind": "smithingTrim",
+      "template": "minecraft:sentry_armor_trim_smithing_template",
+      "base": "minecraft:diamond_helmet",
+      "addition": "minecraft:redstone_block"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+	version: 13
+	icon: {
+		id: "minecraft:book"
+	}
+	show_lock_icons: true
+}

@@ -1,0 +1,11 @@
+﻿{
+  "minecraft": {
+    "version": "1.21.1",
+    "modLoaders": [ { "id": "neoforge-21.1.199", "primary": true } ]
+  },
+  "manifestType": "minecraftModpack",
+  "manifestVersion": 1,
+  "name": "Detect Fixture 1211",
+  "version": "1.0.0",
+  "files": []
+}

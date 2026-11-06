@@ -1,0 +1,10 @@
+# MMSC workbench bundle patch.
+#
+# One Host row owns the `mmsc-workbench` settings namespace. The node half
+# (package.json exports ".") supervises the `kjsftb ui` child process and
+# serves /api/mmsc/*; the browser half (exports "./client") renders
+# Settings -> Modding workbench and talks to that row.
+- insert:
+    - id: mmsc-workbench
+      name: '@tzyc/mmsc-workbench'
+      config: {}

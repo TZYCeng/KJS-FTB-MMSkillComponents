@@ -1,0 +1,7 @@
+﻿{
+  "formatVersion": 1,
+  "name": "Detect Fixture 1605",
+  "versionId": "1.0.0",
+  "dependencies": { "minecraft": "1.16.5", "forge": "36.2.8" },
+  "files": []
+}

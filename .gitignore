@@ -1,0 +1,14 @@
+# Workbench runtime state lives inside the pack, not in the repository
+.kjsftb/
+tmp/
+tmp-modtest/
+tmp-*/
+*.log
+
+# DSH plugin install artifacts (linked from the profile, never committed)
+dsh-plugin/*/node_modules/
+
+# OS noise
+Thumbs.db
+desktop.ini
+.DS_Store

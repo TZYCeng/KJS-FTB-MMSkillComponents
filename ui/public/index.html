@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>KubeJS / FTBQ 工作台</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">K</div>
+      <div><b>KJS 工作台</b><small>KubeJS + FTB Quests</small></div>
+    </div>
+    <nav class="nav" id="nav">
+      <button data-view="overview" class="active">总览</button>
+      <button data-view="items">物品</button>
+      <button data-view="recipes">合成表</button>
+      <button data-view="quests">任务节点</button>
+      <button data-view="settings">设置</button>
+    </nav>
+    <div class="pack-mini" id="packMini">未打开整合包</div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <h1 id="viewTitle">总览</h1>
+      <span class="spacer"></span>
+      <span class="pill" id="pillPack">—</span>
+      <span class="pill" id="pillBusy" style="display:none"><span class="spinner"></span></span>
+      <button id="btnOpen" class="ghost">切换整合包</button>
+      <button id="btnRescan" class="ghost">重新扫描</button>
+    </header>
+
+    <section class="view active" id="view-overview">
+      <div id="overviewBody"><div class="empty">先在设置里打开一个整合包目录。</div></div>
+    </section>
+
+    <section class="view" id="view-items">
+      <div class="toolbar">
+        <div class="grow"><input id="itemSearch" type="search" placeholder="搜索物品 id 或名称，例如 chest / 钻石 / farmersdelight:" /></div>
+        <select id="itemMod" style="width:220px"><option value="">全部模组</option></select>
+        <label class="hint"><input type="checkbox" id="itemOnlyIcon" /> 仅显示有图标</label>
+      </div>
+      <div class="split">
+        <div>
+          <div class="hint" id="itemCount" style="margin-bottom:8px"></div>
+          <div class="item-grid" id="itemGrid"></div>
+          <div style="margin-top:12px; display:flex; gap:8px">
+            <button id="itemPrev">上一页</button>
+            <button id="itemNext">下一页</button>
+          </div>
+        </div>
+        <aside class="side-panel" id="itemDetail"><div class="empty">点一个物品查看它怎么合成、能合成什么。</div></aside>
+      </div>
+    </section>
+
+    <section class="view" id="view-recipes">
+      <div class="toolbar">
+        <div class="grow"><input id="recipeSearch" type="search" placeholder="按产物物品 id 搜索，例如 minecraft:chest" /></div>
+        <select id="recipeType" style="width:220px"><option value="">全部类型</option></select>
+        <button id="btnNewRecipe" class="primary">新建配方</button>
+        <button id="btnClearEdits" class="danger">清空本工具写入的改动</button>
+      </div>
+      <div class="hint" id="recipeCount"></div>
+      <div class="split">
+        <div>
+          <div id="recipeList"></div>
+          <div style="display:flex; gap:8px; align-items:center; margin-top:10px">
+            <button id="recipeMore">再加载 40 条</button>
+            <span class="hint" id="recipeMoreHint"></span>
+          </div>
+        </div>
+        <aside class="side-panel" id="editLog"><div class="empty">右侧会显示这个工作台写入的改动。</div></aside>
+      </div>
+    </section>
+
+    <section class="view" id="view-quests">
+      <div class="toolbar">
+        <select id="questChapter" style="width:240px"><option value="">全部章节</option></select>
+        <span class="hint" id="questCount"></span>
+        <span class="spacer" style="flex:1"></span>
+        <button id="questFit">适应窗口</button>
+      </div>
+      <div class="split" style="grid-template-columns:1fr 320px">
+        <div class="quest-canvas" id="questCanvas"></div>
+        <aside class="side-panel" id="questDetail"><div class="empty">点任务节点查看详情。</div></aside>
+      </div>
+    </section>
+
+    <section class="view" id="view-settings">
+      <div class="panel">
+        <h2>整合包目录</h2>
+        <div class="form-grid">
+          <label>整合包路径</label>
+          <div style="display:flex; gap:8px">
+            <input id="setRoot" type="text" placeholder="D:\modpacks\MyPack" />
+            <button id="setOpen" class="primary">打开</button>
+          </div>
+          <label>客户端 jar（可选）</label>
+          <div style="display:flex; gap:8px">
+            <input id="setClientJar" type="text" placeholder="用于给 minecraft: 物品补图标与英文名的 1.21.1.jar" />
+            <button id="setSaveClient">保存并重扫</button>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:10px">没有客户端 jar 时，原版物品只能靠游戏内 <code>/kubejs export</code> 导出清单补全；模组物品会自动从 jar 里读取。</p>
+      </div>
+
+      <div class="panel">
+        <h2>界面背景</h2>
+        <div class="form-grid">
+          <label>背景图片</label>
+          <div style="display:flex; gap:8px; align-items:center">
+            <input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp,image/gif" />
+            <button id="bgClear">移除背景</button>
+          </div>
+        </div>
+        <p class="hint" style="margin-top:10px">图片保存在整合包目录的 <code>.kjsftb/</code> 里，不会上传到任何地方。</p>
+      </div>
+
+      <div class="panel">
+        <h2>关于数据来源</h2>
+        <div class="hint">
+          物品：优先读游戏内 <code>/kubejs export</code> 生成的 <code>kubejs/exported/registries/item.json</code>，没有导出时扫描 mods 里每个 jar 的模型、贴图与语言文件。<br />
+          合成表：扫描 jar 内的 <code>data/&lt;ns&gt;/recipes</code>（1.21+ 为 <code>recipe</code>）、整合包的数据包、<code>kubejs/data</code>，以及现有脚本里的 <code>event.xxx(...)</code> 调用。<br />
+          任务：读取 <code>config/ftbquests/quests</code> 下的 SNBT 章节、任务与 lang 文本。
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div class="modal-backdrop" id="modal">
+  <div class="modal" id="modalBody"></div>
+</div>
+<div class="toast" id="toast"></div>
+<script src="/app.js"></script>
+</body>
+</html>

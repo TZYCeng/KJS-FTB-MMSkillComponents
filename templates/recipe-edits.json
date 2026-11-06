@@ -1,0 +1,35 @@
+{
+  "priority": 20,
+  "version": "2101.7.2",
+  "header": "Recipe removal and replacement - the safe alternative to editing mod files",
+  "recipes": [
+    {
+      "kind": "remove",
+      "filter": { "output": "minecraft:torch" }
+    },
+    {
+      "kind": "remove",
+      "filter": { "mod": "create", "type": "minecraft:smelting" }
+    },
+    {
+      "kind": "replaceInput",
+      "filter": { "id": "minecraft:torch" },
+      "from": "minecraft:coal",
+      "to": "minecraft:charcoal"
+    },
+    {
+      "kind": "replaceOutput",
+      "from": "minecraft:stick",
+      "to": "minecraft:torch"
+    },
+    {
+      "kind": "custom",
+      "json": {
+        "type": "minecraft:crafting_shaped",
+        "pattern": ["A"],
+        "key": { "A": { "item": "minecraft:dirt" } },
+        "result": { "item": "minecraft:diamond" }
+      }
+    }
+  ]
+}

@@ -1,0 +1,66 @@
+{
+	filename: "bad"
+	group: "1111AAAABBBBCCCC"
+	id: "AAAA0000000000A1"
+	order_index: 0
+	quests: [
+		{
+			id: "BBBB0000000000A1"
+			x: 0.0d
+			y: 0.0d
+			icon: "minecraft:stone"
+			dependencies: ["CCCC0000000000A1"]
+			tasks: [
+				{
+					id: "DDDD0000000000A1"
+					type: "item"
+					count: 4
+				}
+			]
+			rewards: [
+				{
+					id: "EEEE0000000000A1"
+					type: "random"
+					table_id: "FFFF0000000000A1"
+				}
+			]
+		}
+		{
+			id: "BBBB0000000000A1"
+			x: 0.0d
+			y: 0.0d
+			icon: "minecraft:dirt"
+			tasks: [
+				{
+					id: "11110000000000A1"
+					type: "bogus_type"
+				}
+			]
+		}
+		{
+			id: "CCCC0000000000A2"
+			x: 1.0d
+			y: 1.0d
+			icon: "minecraft:apple"
+			tasks: [
+				{
+					id: "22220000000000A1"
+				}
+			]
+			rewards: [
+				{
+					id: "33330000000000A1"
+					type: "xp"
+				}
+			]
+		}
+	]
+	quest_links: [
+		{
+			id: "44440000000000A1"
+			linked_quest: "DEADBEEF0000AAA1"
+			x: 0.0d
+			y: 0.0d
+		}
+	]
+}

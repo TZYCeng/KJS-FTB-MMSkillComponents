@@ -1,0 +1,19 @@
+{
+  "filename": "chapter_two",
+  "group": "",
+  "icon": "minecraft:book",
+  "order_index": 1,
+  "progression_mode": "flexible",
+  "title": "Chapter Two",
+  "subtitle": ["What comes after the beginning"],
+  "default_quest_shape": "circle",
+  "quests": [
+    {
+      "title": "Say hello",
+      "description": ["One click."],
+      "icon": "minecraft:paper",
+      "tasks": [{ "type": "checkmark" }],
+      "rewards": [{ "type": "item", "item": "minecraft:bread", "count": 3 }]
+    }
+  ]
+}

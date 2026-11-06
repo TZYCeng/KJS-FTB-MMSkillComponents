@@ -1,0 +1,36 @@
+{
+  "name": "kjs-ftb-mmskillcomponents",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Version-aware KubeJS + FTB Quests tooling for Minecraft modpacks: a DSH skill, a CLI and a local workbench UI",
+  "type": "module",
+  "bin": {
+    "kjsftb": "bin/kjsftb.mjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TZYCeng/KJS-FTB-MMSkillComponents.git"
+  },
+  "homepage": "https://github.com/TZYCeng/KJS-FTB-MMSkillComponents#readme",
+  "bugs": {
+    "url": "https://github.com/TZYCeng/KJS-FTB-MMSkillComponents/issues"
+  },
+  "keywords": [
+    "minecraft",
+    "kubejs",
+    "ftb-quests",
+    "modpack",
+    "mmsc"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "detect": "node bin/kjsftb.mjs detect",
+    "lint": "node bin/kjsftb.mjs lint",
+    "docs": "node scripts/gen-docs.mjs",
+    "ui": "node bin/kjsftb.mjs ui"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

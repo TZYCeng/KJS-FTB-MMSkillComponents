@@ -1,0 +1,9 @@
+# Keep the working tree byte-identical to the repository: these are JS, YAML,
+# Markdown and SNBT files processed by Node and by the game on every OS.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.webp binary
+*.gif binary
+*.zip binary
+*.jar binary

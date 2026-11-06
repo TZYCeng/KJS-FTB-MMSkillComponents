@@ -1,0 +1,9 @@
+{
+	id: "FFFF0000000000A1"
+	rewards: [
+		{
+			id: "55550000000000A1"
+			type: "bogus_reward"
+		}
+	]
+}
