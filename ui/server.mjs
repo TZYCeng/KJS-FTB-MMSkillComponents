@@ -440,11 +440,13 @@ async function stateSnapshot() {
 async function apiItems(res, url) {
   if (!state.root) return sendJson(res, 400, { error: 'open a pack first' });
   const items = await ensureItems();
+  // The grid asks for 120 at a time; keep a ceiling so a hand-written URL
+  // cannot make one response walk tens of thousands of items.
   const result = searchItems(items, {
     q: url.searchParams.get('q') ?? '',
     mod: url.searchParams.get('mod') ?? '',
-    limit: Number(url.searchParams.get('limit') ?? 120),
-    offset: Number(url.searchParams.get('offset') ?? 0),
+    limit: Math.min(Math.max(Number(url.searchParams.get('limit') ?? 120) || 120, 1), 500),
+    offset: Math.max(Number(url.searchParams.get('offset') ?? 0) || 0, 0),
     withIcon: url.searchParams.get('withIcon') === '1',
   });
   return sendJson(res, 200, result);

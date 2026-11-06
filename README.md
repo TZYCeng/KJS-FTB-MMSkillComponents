@@ -6,9 +6,12 @@ A skill + CLI + local web workbench for AI-assisted Minecraft modpack work: writ
 
 The whole point is version awareness. KubeJS changed its scripting surface twice (1.19 and 1.21), and FTB Quests moved quest text out of chapter files in 1.21. The same-looking code is a silent no-op — or a hard error — on the wrong generation. Everything here is derived from the mods' own source code, not from tutorials.
 
-New here? Read [`docs/handoff/v0.3.0.md`](docs/handoff/v0.3.0.md) first — it is
-the newest note for whoever picks the repository up next, and it links back to
-v0.2.1 (DSH panel post-mortem) and v0.2.0 (full architecture, contracts, gotchas).
+New here? Read [`docs/handoff/CURRENT.md`](docs/handoff/CURRENT.md) first — it is
+a code-derived walkthrough of the whole repository (modules, version model, both
+servers, tests, gotchas, open work) at the current commit. The per-version files
+([`v0.3.0.md`](docs/handoff/v0.3.0.md),
+[`v0.2.1.md`](docs/handoff/v0.2.1.md),
+[`v0.2.0.md`](docs/handoff/v0.2.0.md)) are change logs and background.
 
 ## 中文速查
 

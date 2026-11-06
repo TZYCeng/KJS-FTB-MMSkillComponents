@@ -3,10 +3,14 @@
 These files are written for whoever picks the repository up next: another model,
 another maintainer, or future-you with no memory of the session that built this.
 
-Read the newest version file first, then follow its pointers into the older ones.
+Read `CURRENT.md` first: it is a code-derived walkthrough of the repository as it
+stands (every module, the version model, both servers, the tests, the gotchas).
+The per-version files below are change logs — useful for "why is this like
+that", not for "what is where".
 
-| Version | File | What it adds |
+| Scope | File | What it covers |
 | --- | --- | --- |
+| **current (v0.3.0, `a32b5d8`)** | [CURRENT.md](CURRENT.md) | Full re-read of the code and history: architecture, module reference with anchors, API surface, tests, gotchas, open work, how to extend |
 | 0.3.0 | [v0.3.0.md](v0.3.0.md) | MMSC redesign: multi-pack library, cache-only switching, station filter, graphical builder, quest backdrop |
 | 0.2.1 | [v0.2.1.md](v0.2.1.md) | DSH panel fix (empty HTTP 400), restart requirement, 57-test baseline |
 | 0.2.0 | [v0.2.0.md](v0.2.0.md) | The full architecture: skill, CLI, workbench, DSH panel, contracts, gotchas |
@@ -30,5 +34,9 @@ Read the newest version file first, then follow its pointers into the older ones
    independent and has no DSH dependency at all.
 5. The plugin is installed by linking, not copying:
    `plugin_manager install_bundle target=<repo>/dsh-plugin/mmsc-workbench`.
-   Bundle host rows mount at DSH startup, so restart the desktop app after any
-   host-side change; `Ctrl+R` only reloads the renderer.
+   A host-side change can be picked up **without restarting the desktop app**:
+   `plugin_manager set_bundle enabled=false` then `enabled=true`, then `Ctrl+R`
+   in the renderer. Verify with `$DSH_HOME/mmsc-load.log` (it must show
+   `apply:enter`, seven `route …` lines and `apply:ok`). A full app restart is
+   only needed when the bundle itself is newly installed or removed — and the
+   client half always needs the renderer reload.
